@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ORACLE RACING - Multiplayer</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- MQTT.js -->
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Rajdhani:wght@500;700&display=swap"
+        rel="stylesheet">
+
+    <style>
+        body {
+            background-color: #050510;
+            color: #00ffcc;
+            font-family: 'Rajdhani', sans-serif;
+            overflow-x: hidden;
+            background-image:
+                linear-gradient(rgba(0, 255, 204, 0.05) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 255, 204, 0.05) 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+
+        .pixel-font {
+            font-family: 'Press Start 2P', cursive;
+        }
+
+        /* Neon Glows */
+        .neon-box {
+            border: 2px solid #00ffcc;
+            box-shadow: 0 0 10px rgba(0, 255, 204, 0.5), inset 0 0 10px rgba(0, 255, 204, 0.2);
+            background: rgba(0, 20, 30, 0.8);
+            backdrop-filter: blur(5px);
+        }
+
+        .neon-text {
+            text-shadow: 0 0 5px #00ffcc, 0 0 10px #00ffcc;
+        }
+
+        .neon-text-pink {
+            color: #ff00ff;
+            text-shadow: 0 0 5px #ff00ff, 0 0 10px #ff00ff;
+        }
+
+        /* Track Styles */
+        .track {
+            position: relative;
+            height: 60px;
+            border-bottom: 2px dashed rgba(0, 255, 204, 0.3);
+            margin-bottom: 10px;
+        }
+
+        .start-line {
+            position: absolute;
+            left: 5%;
+            top: 0;
+            bottom: 0;
+            width: 4px;
+            background: #00ffcc;
+            box-shadow: 0 0 10px #00ffcc;
+            z-index: 10;
+        }
+
+        .finish-line {
+            position: absolute;
+            right: 5%;
+            top: 0;
+            bottom: 0;
+            width: 20px;
+            background: repeating-linear-gradient(45deg,
+                    #fff,
+                    #fff 10px,
+                    #000 10px,
+                    #000 20px);
+            border: 1px solid #fff;
+            z-index: 10;
+        }
+
+        /* Racer Avatars */
+        .racer {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 30px;
+            height: 30px;
+            background-color: #ff00ff;
+            border-radius: 5px;
+            box-shadow: 0 0 10px #ff00ff;
+            transition: left 0.1s linear;
+            z-index: 20;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            color: white;
+            font-size: 16px;
+        }
+
+        .racer.self {
+            background-color: #00ffcc;
+            box-shadow: 0 0 15px #00ffcc;
+            transform: translateY(-50%) scale(1.2);
+            z-index: 30;
+        }
+
+        .racer-name {
+            position: absolute;
+            top: -20px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 12px;
+            color: #ccc;
+            white-space: nowrap;
+        }
+
+        .racer.self .racer-name {
+            color: #00ffcc;
+            font-weight: bold;
+        }
+
+        /* Spacebar indicator */
+        #spacebar-hint {
+            animation: pulse 1s infinite alternate;
+        }
+
+        @keyframes pulse {
+            0% {
+                transform: scale(1);
+                opacity: 0.8;
+            }
+
+            100% {
+                transform: scale(1.05);
+                opacity: 1;
+                text-shadow: 0 0 20px #00ffcc;
+            }
+        }
+
+        /* Keypress flash effect */
+        .flash {
+            animation: flashAnim 0.1s ease-out;
+        }
+
+        @keyframes flashAnim {
+            0% {
+                background-color: rgba(0, 255, 204, 0.5);
+            }
+
+            100% {
+                background-color: transparent;
+            }
+        }
+    </style>
+</head>
+
+<body class="h-screen flex flex-col pt-4 pb-4 px-4 overflow-hidden relative" id="gameBody">
+
+    <!-- LOBBY SCREEN -->
+    <div id="lobby-screen" class="absolute inset-0 z-50 flex flex-col items-center justify-center bg-[#050510]">
+        <h1 class="pixel-font neon-text text-4xl mb-2 text-center leading-tight">ORACLE<br><span
+                class="text-pink-500 text-3xl">RACING</span></h1>
+        <p class="text-gray-400 mb-8 max-w-md text-center">Enter the grid. Mash SPACEBAR to accelerate. Claim your glory
+            on the Hall of Fame.</p>
+
+        <div class="neon-box p-8 rounded-lg max-w-sm w-full mx-4 flex flex-col items-center">
+            <label class="pixel-font text-xs mb-4 block w-full text-center">CALLSIGN (NAME):</label>
+            <input type="text" id="playerNameInput" maxlength="12"
+                class="w-full bg-black border border-teal-500 text-teal-300 px-4 py-3 rounded mb-6 text-center text-xl uppercase focus:outline-none focus:ring-2 focus:ring-teal-400"
+                placeholder="e.g. NEO">
+
+            <button id="joinBtn"
+                class="w-full bg-transparent border-2 border-pink-500 text-pink-500 hover:bg-pink-500 hover:text-white font-bold py-3 px-4 rounded transition-all pixel-font text-sm uppercase">
+                ENTER MATCH
+            </button>
+            <p id="connStatus" class="mt-4 text-xs text-gray-500 font-mono">Connecting to MQTT Broker...</p>
+        </div>
+
+        <!-- Hall of Fame (Lobby view) -->
+        <div class="mt-12 w-full max-w-md">
+            <h2 class="pixel-font text-pink-500 text-sm mb-4 text-center">🏆 HALL OF FAME 🏆</h2>
+            <div id="lobbyHoF" class="neon-box p-4 rounded bg-black/50 text-sm">
+                <p class="text-center text-gray-600">Loading records...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- IN-GAME HUD -->
+    <div id="game-screen" class="hidden flex-col h-full">
+        <!-- HEADER -->
+        <div class="flex justify-between items-center px-4 py-2 border-b border-teal-900 mb-6">
+            <h1 class="pixel-font text-xl neon-text">ORACLE RACING</h1>
+            <div class="text-right">
+                <p class="text-xs text-gray-500 uppercase">Current Runner</p>
+                <p class="font-bold text-lg text-pink-500 uppercase" id="hudName">Player</p>
+            </div>
+        </div>
+
+        <!-- MAIN RACE AREA -->
+        <div class="flex-grow relative border-l-2 border-r-2 border-teal-900 bg-black/30 rounded-lg mx-2 overflow-hidden flex flex-col justify-center py-8"
+            id="trackContainer">
+
+            <div class="start-line"></div>
+            <div class="finish-line"></div>
+
+            <!-- Tracks injected via JS -->
+            <!-- <div class="track"><div class="racer self" style="left: 5%"><span class="racer-name">NEO</span></div></div> -->
+
+        </div>
+
+        <!-- FOOTER / CONTROLS -->
+        <div class="mt-6 flex justify-between items-end px-4">
+            <!-- Left: Hall of Fame -->
+            <div class="w-1/3">
+                <h3 class="pixel-font text-[10px] text-pink-500 mb-2">⚡ HALL OF FAME</h3>
+                <div id="ingameHoF" class="neon-box p-3 rounded text-xs h-24 overflow-y-auto">
+                    <!-- Loaded from MQTT retain -->
+                    <p class="text-gray-600">Awaiting Oracle data...</p>
+                </div>
+            </div>
+
+            <!-- Center: Spacebar prompt -->
+            <div class="w-1/3 text-center mb-4">
+                <div id="spacebar-hint"
+                    class="inline-block border-2 border-teal-400 bg-teal-900/30 text-teal-300 font-bold py-3 px-8 rounded-lg pixel-font text-sm shadow-[0_0_15px_rgba(0,255,204,0.4)]">
+                    [ SPACEBAR ] TO RUN
+                </div>
+                <p id="statusMsg" class="mt-4 text-pink-400 font-bold h-6 text-xl uppercase"></p>
+                <p id="timerDisplay" class="font-mono text-2xl text-teal-300 mt-1">0.000s</p>
+            </div>
+
+            <!-- Right: Logs -->
+            <div class="w-1/3 text-right">
+                <button id="restartBtn"
+                    class="hidden border border-pink-500 text-pink-500 hover:bg-pink-500 hover:text-white px-4 py-2 rounded text-sm pixel-font ml-auto mb-2">RESTART</button>
+                <p class="text-[10px] text-gray-600 font-mono">BROKER: WSS://TEST.MOSQUITTO.ORG:8081/MQTT</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- WINNER OVERLAY -->
+    <div id="winner-overlay"
+        class="hidden absolute inset-0 z-[60] bg-black/80 flex flex-col items-center justify-center backdrop-blur-sm">
+        <h2 class="pixel-font text-5xl neon-text mb-4">RACE FINISHED!</h2>
+        <p class="text-3xl text-pink-500 font-bold mb-2 uppercase" id="winAnnouncement">Player won!</p>
+        <p class="text-2xl text-white font-mono mb-8" id="winTimeDisplay">Time: --</p>
+
+        <p id="hofStatus" class="text-teal-400 text-lg mb-8 h-8 font-bold animate-pulse"></p>
+
+        <button onclick="leaveMatch()"
+            class="bg-transparent border-2 border-teal-500 text-teal-500 hover:bg-teal-500 hover:text-black font-bold py-3 px-8 rounded transition-all pixel-font text-sm">
+            RETURN TO LOBBY
+        </button>
+    </div>
+
+    <!-- APPLICATION LOGIC -->
+    <script>
+        // --- CONSTANTS ---
+        const BROKER_URL = 'wss://test.mosquitto.org:8081/mqtt';
+        const TOPIC_ROOT = 'oracle_racing/2026';
+        const TOPIC_ROOM = `${TOPIC_ROOT}/room_main`;
+        const TOPIC_HOF = `${TOPIC_ROOT}/hall_of_fame`;
+
+        const RACE_GOAL_CLICKS = 100; // How many spacebars to finish
+        const TRACK_START_PCT = 5;    // Start left %
+        const TRACK_END_PCT = 95;     // Finish right %
+
+        // --- STATE ---
+        let mqttClient = null;
+        let myName = '';
+        let myClicks = 0;
+        let isRacing = false;
+        let startTime = 0;
+        let raceTimerInterval = null;
+
+        // Multiplayer Data
+        // players: { "name": { clicks: 0, lastSeen: timestamp } }
+        let playersMap = {};
+        let hallOfFame = []; // Array of { name, time }
+
+        // --- UI ELEMENTS ---
+        const elLobby = document.getElementById('lobby-screen');
+        const elGame = document.getElementById('game-screen');
+        const elInput = document.getElementById('playerNameInput');
+        const elJoinBtn = document.getElementById('joinBtn');
+        const elConnStatus = document.getElementById('connStatus');
+
+        const elTrackContainer = document.getElementById('trackContainer');
+        const elStatusMsg = document.getElementById('statusMsg');
+        const elTimer = document.getElementById('timerDisplay');
+        const elRestartBtn = document.getElementById('restartBtn');
+
+        const elWinnerOverlay = document.getElementById('winner-overlay');
+        const elWinAnnouncement = document.getElementById('winAnnouncement');
+        const elWinTime = document.getElementById('winTimeDisplay');
+        const elHofStatus = document.getElementById('hofStatus');
+        const elSpacebarHint = document.getElementById('spacebar-hint');
+
+        // --- INITIALIZATION ---
+        function connectMQTT() {
+            mqttClient = mqtt.connect(BROKER_URL);
+
+            mqttClient.on('connect', () => {
+                console.log('Connected to MQTT Broker');
+                elConnStatus.innerText = 'Connected!';
+                elConnStatus.classList.replace('text-gray-500', 'text-teal-500');
+                elJoinBtn.disabled = false;
+
+                // Subscribe to Global Hall of Fame to instantly get retained messages
+                mqttClient.subscribe(TOPIC_HOF);
+            });
+
+            mqttClient.on('error', (err) => {
+                console.error('MQTT Error', err);
+                elConnStatus.innerText = 'Connection Failed / Retrying...';
+                elConnStatus.classList.replace('text-gray-500', 'text-red-500');
+            });
+
+            mqttClient.on('message', (topic, message) => {
+                const payloadStr = message.toString();
+
+                // 1. Hall of Fame Updates (Retained usually)
+                if (topic === TOPIC_HOF) {
+                    try {
+                        const data = JSON.parse(payloadStr);
+                        if (Array.isArray(data)) {
+                            hallOfFame = data;
+                            renderHoF();
+                        }
+                    } catch (e) { console.warn("HoF JSON Parse error"); }
+                    return;
+                }
+
+                // 2. Room Event Updates (Positions, Wins)
+                if (topic === `${TOPIC_ROOM}/events`) {
+                    try {
+                        const evt = JSON.parse(payloadStr);
+                        handleRoomEvent(evt);
+                    } catch (e) { }
+                    return;
+                }
+            });
+        }
+
+        connectMQTT();
+
+        // --- GAME FLOW LOGIC ---
+        elJoinBtn.addEventListener('click', () => {
+            const rawName = elInput.value.trim().toUpperCase();
+            if (rawName.length < 2) {
+                alert("Callsign must be at least 2 characters.");
+                return;
+            }
+            myName = rawName;
+
+            // Subscribe to room events
+            mqttClient.subscribe(`${TOPIC_ROOM}/events`);
+
+            // Setup UI
+            elLobby.classList.add('hidden');
+            elGame.classList.remove('hidden');
+            document.getElementById('hudName').innerText = myName;
+
+            resetRace();
+
+            // Broadcast join
+            publishEvent({ type: 'JOIN', name: myName });
+
+            // Heartbeat to keep players map alive
+            setInterval(() => {
+                if (isRacing) publishEvent({ type: 'POS', name: myName, clicks: myClicks });
+            }, 1000);
+
+            // Cleanup stale players
+            setInterval(cleanupStalePlayers, 2000);
+        });
+
+        function resetRace() {
+            myClicks = 0;
+            isRacing = true;
+            startTime = Date.now();
+            playersMap = {}; // clear others
+            playersMap[myName] = { clicks: 0, lastSeen: Date.now() };
+
+            elWinnerOverlay.classList.add('hidden');
+            elStatusMsg.innerText = "GO!";
+            elStatusMsg.classList.remove('text-pink-400');
+            elStatusMsg.classList.add('text-teal-400');
+            elSpacebarHint.style.opacity = '1';
+            elRestartBtn.classList.add('hidden');
+
+            if (raceTimerInterval) clearInterval(raceTimerInterval);
+            raceTimerInterval = setInterval(updateTimerUI, 50);
+
+            publishEvent({ type: 'POS', name: myName, clicks: 0 });
+            renderTracks();
+            setTimeout(() => { if (elStatusMsg.innerText === "GO!") elStatusMsg.innerText = ""; }, 2000);
+        }
+
+        // --- CORE MECHANICS (SPACEBAR) ---
+        window.addEventListener('keydown', (e) => {
+            // Prevent default scroll if it's space
+            if (e.code === 'Space') {
+                e.preventDefault();
+
+                if (isRacing && elGame.classList.contains('hidden') === false) {
+                    // Visual feedback
+                    document.getElementById('gameBody').classList.add('flash');
+                    setTimeout(() => document.getElementById('gameBody').classList.remove('flash'), 50);
+
+                    myClicks++;
+                    if (myClicks > RACE_GOAL_CLICKS) myClicks = RACE_GOAL_CLICKS;
+
+                    playersMap[myName] = { clicks: myClicks, lastSeen: Date.now() };
+
+                    // Throttle position updates slightly to avoid flooding, but spacebar is fast!
+                    // We'll publish every 2 clicks or on finish
+                    if (myClicks % 3 === 0 || myClicks === RACE_GOAL_CLICKS) {
+                        publishEvent({ type: 'POS', name: myName, clicks: myClicks });
+                    }
+
+                    renderTracks();
+
+                    // Check Win Condition locally
+                    if (myClicks >= RACE_GOAL_CLICKS) {
+                        triggerFinish();
+                    }
+                }
+            }
+        });
+
+        // --- MULTIPLAYER SYNC ---
+        function publishEvent(payload) {
+            if (!mqttClient || !mqttClient.connected) return;
+            mqttClient.publish(`${TOPIC_ROOM}/events`, JSON.stringify(payload), { qos: 0 });
+        }
+
+        function handleRoomEvent(evt) {
+            if (evt.name === myName) return; // Ignore own echoes
+
+            const now = Date.now();
+
+            if (evt.type === 'POS' || evt.type === 'JOIN') {
+                if (!playersMap[evt.name]) {
+                    // New player joined mid-race or discovered
+                    playersMap[evt.name] = { clicks: evt.clicks || 0, lastSeen: now };
+                } else {
+                    playersMap[evt.name].clicks = evt.clicks;
+                    playersMap[evt.name].lastSeen = now;
+                }
+                renderTracks();
+            }
+            else if (evt.type === 'WIN') {
+                // Someone else won!
+                if (isRacing) {
+                    isRacing = false;
+                    clearInterval(raceTimerInterval);
+                    elSpacebarHint.style.opacity = '0.3';
+
+                    // Show loss overlay
+                    elWinAnnouncement.innerText = `${evt.name} WON!`;
+                    elWinAnnouncement.className = "text-3xl text-red-500 font-bold mb-2 uppercase";
+                    elWinTime.innerText = `Winning Time: ${(evt.time / 1000).toFixed(3)}s`;
+                    elHofStatus.innerText = ""; // Only winner saves to HoF
+
+                    setTimeout(() => {
+                        elWinnerOverlay.classList.remove('hidden');
+                        elRestartBtn.classList.remove('hidden'); // allow local restart
+                    }, 500);
+                }
+            }
+        }
+
+        function cleanupStalePlayers() {
+            if (!isRacing) return;
+            const now = Date.now();
+            let changed = false;
+            for (let p in playersMap) {
+                if (p !== myName && (now - playersMap[p].lastSeen > 5000)) {
+                    delete playersMap[p];
+                    changed = true;
+                }
+            }
+            if (changed) renderTracks();
+        }
+
+        // --- ENDGAME & HALL OF FAME (RETAIN) ---
+        function triggerFinish() {
+            isRacing = false;
+            clearInterval(raceTimerInterval);
+            const finalTime = Date.now() - startTime;
+
+            // Broadcast win
+            publishEvent({ type: 'WIN', name: myName, time: finalTime });
+
+            // Show UI
+            elWinAnnouncement.innerText = "YOU WIN!";
+            elWinAnnouncement.className = "text-3xl text-teal-400 font-bold mb-2 uppercase";
+            elWinTime.innerText = `Time: ${(finalTime / 1000).toFixed(3)}s`;
+            elWinnerOverlay.classList.remove('hidden');
+
+            // Handle Retained Hall of Fame Logic
+            checkAndSaveHoF(finalTime);
+
+            // Enable restart after a delay
+            setTimeout(() => { elRestartBtn.classList.remove('hidden'); }, 1500);
+        }
+
+        function checkAndSaveHoF(timeMs) {
+            elHofStatus.innerText = "Consulting the Oracle...";
+
+            setTimeout(() => {
+                let newHof = [...hallOfFame];
+                newHof.push({ name: myName, time: timeMs, date: Date.now() });
+
+                // Sort ascending by time (lowest = fastest)
+                newHof.sort((a, b) => a.time - b.time);
+
+                // Keep top 5
+                newHof = newHof.slice(0, 5);
+
+                // Determine if we made the cut
+                const madeIt = newHof.some(r => r.name === myName && r.time === timeMs);
+
+                if (madeIt) {
+                    elHofStatus.innerText = "RECORD SAVED TO HALL OF FAME!";
+                    elHofStatus.classList.replace('text-teal-400', 'text-pink-500');
+
+                    // PUBLISH WITH RETAIN TRUE
+                    if (mqttClient && mqttClient.connected) {
+                        mqttClient.publish(TOPIC_HOF, JSON.stringify(newHof), { qos: 1, retain: true });
+                    }
+                } else {
+                    elHofStatus.innerText = "Not fast enough for Hall of Fame.";
+                    elHofStatus.classList.replace('text-pink-500', 'text-gray-400');
+                    elHofStatus.classList.remove('animate-pulse');
+                }
+            }, 800); // Dramatic pause
+        }
+
+        // --- RENDERING ---
+        function renderTracks() {
+            // Keep start/finish lines, remove old racers
+            const existingLines = `<div class="start-line"></div><div class="finish-line"></div>`;
+            elTrackContainer.innerHTML = existingLines;
+
+            // Sort players visually so self is always bottom or top
+            const names = Object.keys(playersMap).sort();
+
+            names.forEach(name => {
+                const playerData = playersMap[name];
+
+                // Calculate percentage: Map 0-100 clicks to 5-95% layout
+                const pct = TRACK_START_PCT + ((playerData.clicks / RACE_GOAL_CLICKS) * (TRACK_END_PCT - TRACK_START_PCT));
+
+                const isSelf = name === myName;
+                const letter = name.charAt(0);
+
+                const trackDiv = document.createElement('div');
+                trackDiv.className = 'track';
+                trackDiv.innerHTML = `
+                    <div class="racer ${isSelf ? 'self' : ''}" style="left: ${pct}%">
+                        ${letter}
+                        <span class="racer-name">${name}</span>
+                    </div>
+                `;
+                elTrackContainer.appendChild(trackDiv);
+            });
+        }
+
+        function renderHoF() {
+            const html = hallOfFame.length === 0
+                ? '<p class="text-center text-gray-600 my-4">No records yet.</p>'
+                : hallOfFame.map((r, i) => `
+                    <div class="flex justify-between items-center py-1 ${i === 0 ? 'text-pink-400 font-bold' : 'text-teal-200'} border-b border-teal-900/50 last:border-0">
+                        <span>#${i + 1} ${r.name}</span>
+                        <span class="font-mono">${(r.time / 1000).toFixed(3)}s</span>
+                    </div>
+                `).join('');
+
+            document.getElementById('lobbyHoF').innerHTML = html;
+            document.getElementById('ingameHoF').innerHTML = html;
+        }
+
+        function updateTimerUI() {
+            const current = Date.now() - startTime;
+            elTimer.innerText = `${(current / 1000).toFixed(3)}s`;
+        }
+
+        window.leaveMatch = function () {
+            isRacing = false;
+            // Unsub room stuff
+            mqttClient.unsubscribe(`${TOPIC_ROOM}/events`);
+            elWinnerOverlay.classList.add('hidden');
+            elGame.classList.add('hidden');
+            elLobby.classList.remove('hidden');
+        }
+
+        elRestartBtn.addEventListener('click', () => {
+            resetRace();
+        });
+
+    </script>
+</body>
+
+</html>
